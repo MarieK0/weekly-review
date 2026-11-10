@@ -454,10 +454,24 @@ def section_timetable(start_date, end_date):
             total += e - s
     if not courses:
         return z + ["No courses in this period."]
-    z += [f"Scheduled total: **{duration(total)}**", "", "| Course | Hours | Days |", "|---|---:|---|"]
+    per_subject = defaultdict(timedelta)
+    z += [f"Scheduled total: **{duration(total)}**", "", "| Course | Subject | Hours | Days |", "|---|---|---:|---|"]
     for title, (t, ds) in sorted(courses.items(), key=lambda kv: -kv[1][0]):
-        z.append(f"| {cell(title)} | {duration(t)} | {days_text(ds)} |")
+        subject = course_subject(title)
+        per_subject[subject or "(not mapped)"] += t
+        z.append(f"| {cell(title)} | {cell(subject or '–')} | {duration(t)} | {days_text(ds)} |")
+    z += ["", "Per subject: " + ", ".join(f"{s} {duration(t)}" for s, t in
+                                       sorted(per_subject.items(), key=lambda st: -st[1]))]
     return z
+
+
+def course_subject(title):
+    """Subject of a timetable course from settings.json "timetable_subjects" (course code -> subject),
+    e.g. {"DES": "Databases"} maps "09_DES3VO" to Databases. None if no code matches."""
+    for code, subject in (SETTINGS.get("timetable_subjects") or {}).items():
+        if re.search(r"(?<![A-Za-z])" + re.escape(code), title):
+            return subject
+    return None
 
 
 STRAVA_JS = """// Strava activities __FROM__ to __TO__ - pass the result to review.py unchanged
@@ -689,6 +703,9 @@ def projects(today=None):
         items = sorted(((p, d) for (aa, p), d in found.items() if aa == a), key=lambda pd: (-pd[1].toordinal(), pd[0]))
         if items:
             print(f"- {a}: " + ", ".join(f"{p} ({d.isoformat()})" for p, d in items))
+    timetable = list(dict.fromkeys((SETTINGS.get("timetable_subjects") or {}).values()))
+    if timetable:
+        print("- Uni subjects on the current timetable: " + ", ".join(timetable))
     print("- Other: anything that fits nowhere else")
 
 

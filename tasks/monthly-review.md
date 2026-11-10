@@ -21,7 +21,7 @@ Write my monthly review for the previous full month. Casual tone, addressing me 
 3. Write the review from it in the review language, with the area names from the data, about 1 to 2 screens long:
    - The month in 3 to 5 sentences.
    - Working hours of the month (the most important part, right after the introduction):
-     a) A table grouped by area (Work, Uni, Private, Other): per area one bold row with the subtotal, below it the projects or subjects. Columns: total active time (Claude Code and apps together) and, for Uni only, attendance according to the timetable. Match the timetable's courses to the subjects as well as you can; anything that does not fit gets its own row. A total row at the end; for Uni additionally "Uni total" = active time + attendance.
+     a) A table grouped by area (Work, Uni, Private, Other): per area one bold row with the subtotal, below it the projects or subjects. Columns: total active time (Claude Code and apps together) and, for Uni only, attendance according to the timetable. Use the subject the data gives for each timetable course; courses without a subject get their own row. A total row at the end; for Uni additionally "Uni total" = active time + attendance.
      b) A table per week with one column per area and the total, so the trend is visible.
      c) Work hours list: every day with Work time (date and hours) and the monthly sum, so I can pass it on directly.
      Only the active time from the data counts as hours; do not add time in which Claude worked on its own. If a lot of time is "unassigned", name the biggest apps in one sentence so I can add rules for them in settings.json. Give the number of claude.ai chats per area in one sentence (chats have no time).

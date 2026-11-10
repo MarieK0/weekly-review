@@ -15,5 +15,6 @@
     "Uni/Databases": ["SQL"],
     "Uni": ["moodle"]
   },
-  "timetable_ical": "https://example.com/your-personal-timetable.ics"
+  "timetable_ical": "https://example.com/your-personal-timetable.ics",
+  "timetable_subjects": {"DB": "Databases", "MATH": "Maths"}
 }
