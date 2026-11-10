@@ -1,0 +1,19 @@
+{
+  "review_language": "English",
+  "area_names": {"Work": "Work", "Uni": "Uni", "Private": "Private", "Other": "Other"},
+  "work_dir": "~/Work",
+  "work_projects_dir": "~/Work/Projects",
+  "uni_dirs": {"~/Uni": "", "~/CLionProjects": "C"},
+  "private_dirs": ["~/Hobby"],
+  "repo_subjects": {"prog2-": "Programming 2"},
+  "apps": {
+    "sql developer": "Uni/Databases",
+    "clion": "Uni/C",
+    "intellij": "Uni/Java"
+  },
+  "keywords": {
+    "Uni/Databases": ["SQL"],
+    "Uni": ["moodle"]
+  },
+  "timetable_ical": "https://example.com/your-personal-timetable.ics"
+}

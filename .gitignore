@@ -1,0 +1,11 @@
+# Personal data stays on the Mac only
+settings.json
+claude-activity.csv
+chats.csv
+documents.csv
+last-run.log
+weeks/
+months/
+*.tmp
+__pycache__/
+.DS_Store
