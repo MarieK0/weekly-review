@@ -467,7 +467,7 @@ def section_timetable(start_date, end_date):
 
 def course_subject(title):
     """Subject of a timetable course from settings.json "timetable_subjects" (course code -> subject),
-    e.g. {"DES": "Databases"} maps "09_DES3VO" to Databases. None if no code matches."""
+    e.g. {"DB": "Databases"} maps "07_DB2VO" to Databases. None if no code matches."""
     for code, subject in (SETTINGS.get("timetable_subjects") or {}).items():
         if re.search(r"(?<![A-Za-z])" + re.escape(code), title):
             return subject

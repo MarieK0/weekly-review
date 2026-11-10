@@ -140,7 +140,7 @@ To check everything, run `python3 review.py data week` and read the output.
 | `apps` | Part of an app name → `"Area/Project"`, used when the window title gives nothing away. |
 | `keywords` | `"Area/Project"` (or just `"Area"`) → words in window titles, e.g. browser tabs. |
 | `timetable_ical` | iCal link of your timetable. Keep it private; `settings.json` is never committed. |
-| `timetable_subjects` | Course code → subject, e.g. `{"DES": "Databases"}` counts the course `09_DES3VO` as Databases. Courses without a match get their own row. |
+| `timetable_subjects` | Course code → subject, e.g. `{"DB": "Databases"}` counts the course `07_DB2VO` as Databases. Courses without a match get their own row. |
 
 Everything else falls into Other, named after its top folder in your home directory.
 
