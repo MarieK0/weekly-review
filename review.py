@@ -812,7 +812,7 @@ def data(kind, value=None, today=None, strava=None):
     z = [f"# Data for the review · {title}", "",
          f"Review language: {SETTINGS.get('review_language') or 'English'}. Area names to use: "
          + ", ".join(f"{a} = {names[a]}" for a in AREAS) + ".",
-         f"Save the review notes as: `{os.path.relpath(path, BASE)}`", ""]
+         f"Save the review as: `{os.path.relpath(path, BASE)}`", ""]
     for section in (lambda: section_working_time(start_date, end_date, kind == "month"),
                     lambda: section_chats(start_date, end_date),
                     lambda: section_git(start_date, end_date),
@@ -895,6 +895,31 @@ def months_back(year, month, n):
     return i // 12, i % 12 + 1
 
 
+SHOWN_WEEK = re.compile(r"^\.shown-(\d{4})-W(\d{2})$")
+SHOWN_MONTH = re.compile(r"^\.shown-(\d{4})-(\d{2})$")
+
+
+def remove_old_markers(today):
+    """A chat task that shows the reviews may leave markers like .shown-2026-W45 in weeks/ and
+    .shown-2026-10 in months/; it only needs the one of the latest period."""
+    for folder, pattern in ((WEEKS, SHOWN_WEEK), (MONTHS, SHOWN_MONTH)):
+        if not os.path.isdir(folder):
+            continue
+        for name in os.listdir(folder):
+            m = pattern.match(name)
+            if not m:
+                continue
+            try:
+                if pattern is SHOWN_WEEK:
+                    old = (today - date.fromisocalendar(int(m[1]), int(m[2]), 7)).days > 35
+                else:
+                    old = (int(m[1]), int(m[2])) < months_back(today.year, today.month, 2)
+            except ValueError:
+                continue
+            if old:
+                os.remove(os.path.join(folder, name))
+
+
 def cleanup(today=None):
     today = today or date.today()
     previous_month = months_back(today.year, today.month, 1)
@@ -909,8 +934,11 @@ def cleanup(today=None):
             except ValueError:
                 continue
             month_done = os.path.exists(os.path.join(MONTHS, f"{sunday.year}-{sunday.month:02d}.md"))
-            if month_done or (sunday.year, sunday.month) < previous_month:
+            # Keep a week for at least 7 days, so it can still be shown even if the monthly
+            # review of its month runs the same morning
+            if (month_done and (today - sunday).days > 7) or (sunday.year, sunday.month) < previous_month:
                 os.remove(os.path.join(WEEKS, name))
+    remove_old_markers(today)
     if os.path.isdir(MONTHS):
         oldest = months_back(today.year, today.month, KEEP_MONTHS)
         for name in os.listdir(MONTHS):

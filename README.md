@@ -5,8 +5,8 @@ collected on your Mac. Four parts work together:
 
 | Part | When | What it does |
 |---|---|---|
-| **Weekly review** | Mondays 8:00 | Claude posts a review of the past week in the chat of a scheduled task, split into Work, Uni and Private, with a comparison with the week before at the end. |
-| **Monthly review** | 1st of the month, 8:00 | Claude posts a review of the past month, with weekly trends, a list of work hours per day and a comparison with the month before. |
+| **Weekly review** | Mondays 8:00 | Claude posts a review of the past week in the chat of a scheduled task, with charts, split into Work, Uni and Private and with a comparison with the week before at the end, and sends you a notification. |
+| **Monthly review** | 1st of the month, 8:00 | The same for the past month, with weekly trends, a list of work hours per day and a comparison with the month before. |
 | **Chat log** | daily 0:00 | Notes the date and title of your claude.ai chats, so they still count after you delete them. |
 | **Activity export** | hourly (cron) | Saves when you were active in Claude Code, before Claude Code deletes old transcripts, and cleans up old data. |
 
@@ -16,7 +16,8 @@ review in the language you choose.
 
 ## What the reviews contain
 
-Both reviews use the same layout, so they are quick to scan:
+Both reviews use the same layout, so they are quick to scan. They start with a chart (key numbers
+and active time per project; the monthly review adds charts per week and per day), followed by:
 
 | Section | What is in it |
 |---|---|
@@ -33,7 +34,7 @@ Only active time counts as hours (see below). The **monthly review** additionall
 - a **list of work hours per day** with the monthly sum, ready to pass on (e.g. for invoicing),
 - gym progress for exercises you did several times (first → last session, heaviest set),
 - two or three points for the next month,
-- housekeeping: it archives old review chats in the Claude app so the sidebar stays tidy.
+- housekeeping: it checks that the chat log task runs and archives its leftover chats.
 
 If a source is not set up or fails (e.g. you are logged out of Strava), the review says so in
 one sentence and carries on with the rest. If the previous period has less data (e.g. app
@@ -186,10 +187,12 @@ timetable link and, in the Claude app's browser, Strava and claude.ai. Your data
 - Strava activities are read during the review and never written to disk.
 - The CSVs and ActivityWatch entries keep only the current and the two previous months
   (enough for the monthly review to compare the past month with the one before).
-- The review itself is posted in the task's chat. `weeks/` and `months/` only hold short notes
-  that later reviews read as background: weekly notes are deleted once their month has monthly
-  notes, monthly notes after 12 months.
-- The monthly review archives old review chats in the Claude app.
+- The review is posted in the task's chat and also saved as Markdown in `weeks/` and `months/`.
+  A weekly review is deleted a week after its month has a monthly review, a monthly review after
+  12 months.
+- Each review archives the earlier runs of its task, so only the newest one stays in the sidebar.
+- The notification goes to your Mac; it reaches your phone only while Remote Control is on in
+  the Claude app.
 
 ## Caveats
 
