@@ -22,11 +22,12 @@ The review itself is posted in the scheduled task's chat; weeks/ and months/ onl
 notes that later reviews read as background.
 
 Cleanup:
-- ActivityWatch entries before the previous month are deleted (at most 3000 per run).
+- ActivityWatch entries older than the two previous months are deleted (at most 3000 per run).
 - weeks/YYYY-Www.md is deleted as soon as months/ has the notes of its month
   (a week belongs to the month of its Sunday).
 - months/YYYY-MM.md is deleted after KEEP_MONTHS months.
-- chats.csv keeps only the current and the previous month.
+- chats.csv keeps only the current and the two previous months (enough to compare the
+  monthly review with the month before).
 Only files named exactly like above are deleted.
 
 Claude Code time is only the time in which you were active (export.py explains how it is
@@ -37,7 +38,7 @@ from datetime import date, datetime, timedelta, timezone
 
 sys.dont_write_bytecode = True  # no __pycache__ folder next to the scripts
 from common import (AREAS, BASE, PRIVATE_DIRS, REPO_SUBJECTS, SETTINGS, TERM_FOLDER, UNI_DIRS,
-                    WORK_DIR, WORK_PROJECTS, area_order, classify, start_of_previous_month)
+                    WORK_DIR, WORK_PROJECTS, area_order, classify, keep_from)
 from export import BREAK_MIN, CSV, FLAT_MIN
 import activitywatch
 
@@ -144,8 +145,10 @@ def claude_spans(start_date, end_date):
     return rows
 
 
-def section_working_time(start_date, end_date, is_month):
-    z = ["## Working time (active time only: Claude Code + apps on the Mac)", ""]
+def working_time(start_date, end_date):
+    """Active time in a period as a dict: total, proj {(area, project): time},
+    source {(area, project, "claude"|"apps"): time}, proj_days, days {date: (total, by_area, from, to)},
+    messages, apps {(app, area, project): seconds}, unassigned {app: seconds}, notes."""
     spans = [(s, e, (a, p, "claude")) for s, e, (a, p) in claude_spans(start_date, end_date)]
     messages = len(spans)
     notes, unassigned, apps = [], {}, defaultdict(float)
@@ -162,9 +165,6 @@ def section_working_time(start_date, end_date, is_month):
     except Exception as e:
         notes.append(f"_ActivityWatch not reachable ({type(e).__name__}): Claude Code time only. "
                      "Is ActivityWatch running (icon in the menu bar)?_")
-    if not spans:
-        return z + notes + ["No tracked working time in this period."]
-
     per_day = defaultdict(list)
     for s, e, k in spans:
         per_day[e.date() if e.time() != datetime.min.time() else (e - timedelta(seconds=1)).date()].append((s, e, k))
@@ -180,6 +180,17 @@ def section_working_time(start_date, end_date, is_month):
             by_area[a] += time_
         day_start = datetime.combine(d, datetime.min.time())
         days[d] = (t, by_area, max(day_start, min(s for s, _, _ in sp)), max(e for _, e, _ in sp))
+    return {"total": total, "proj": proj, "source": source, "proj_days": proj_days, "days": days,
+            "messages": messages, "apps": apps, "unassigned": unassigned, "notes": notes}
+
+
+def section_working_time(start_date, end_date, is_month):
+    z = ["## Working time (active time only: Claude Code + apps on the Mac)", ""]
+    w = working_time(start_date, end_date)
+    total, proj, source, proj_days, days = w["total"], w["proj"], w["source"], w["proj_days"], w["days"]
+    messages, apps, unassigned, notes = w["messages"], w["apps"], w["unassigned"], w["notes"]
+    if not days:
+        return z + notes + ["No tracked working time in this period."]
     areas = sorted({a for a, _ in proj}, key=area_order)
 
     z += [f"Active time total: **{duration(total)}** on {len(days)} days "
@@ -228,11 +239,11 @@ def section_working_time(start_date, end_date, is_month):
     return z
 
 
-def section_chats(start_date, end_date):
-    z = ["## claude.ai chats (Chat tab and website)", ""]
+def collect_chats(start_date, end_date):
+    """{(area, subject, title): days} of the logged claude.ai chats, or None if there is no log yet."""
     if not os.path.exists(CHATS):
-        return z + ["No chats logged yet (the daily chat log has not run yet)."]
-    chats = defaultdict(set)  # (area, subject, title) -> days
+        return None
+    chats = defaultdict(set)
     with open(CHATS, newline="", encoding="utf-8") as fh:
         for r in csv.DictReader(fh):
             try:
@@ -241,6 +252,14 @@ def section_chats(start_date, end_date):
                 continue
             if start_date <= d <= end_date:
                 chats[(r.get("area") or "Other", r.get("subject") or "", r.get("title") or "")].add(d)
+    return chats
+
+
+def section_chats(start_date, end_date):
+    z = ["## claude.ai chats (Chat tab and website)", ""]
+    chats = collect_chats(start_date, end_date)
+    if chats is None:
+        return z + ["No chats logged yet (the daily chat log has not run yet)."]
     if not chats:
         return z + ["No claude.ai chats in this period."]
     z += [f"{len(chats)} chats with activity.", "", "| Area | Subject / topic | Chat | Days |", "|---|---|---|---|"]
@@ -272,8 +291,8 @@ def gh_json(*args):
     return json.loads(r.stdout or "[]")
 
 
-def section_git(start_date, end_date):
-    z = ["## Git and GitHub", ""]
+def collect_git(start_date, end_date):
+    """(commits {sha: (area, project, time, subject line)}, prs, issues, note or None)."""
     authors = []
     for key in ("user.email", "user.name"):
         r = subprocess.run(["git", "config", "--global", key], capture_output=True, text=True)
@@ -318,7 +337,12 @@ def section_git(start_date, end_date):
                 commits[c["sha"]] = (a, p, when, subject)
     except Exception as e:  # GitHub not reachable: show local commits only
         gh_note = f"_GitHub not queried: {e}_"
+    return commits, prs, issues, gh_note
 
+
+def section_git(start_date, end_date):
+    z = ["## Git and GitHub", ""]
+    commits, prs, issues, gh_note = collect_git(start_date, end_date)
     if not commits and not prs and not issues:
         z.append("No commits, PRs or issues in this period.")
     if commits:
@@ -430,35 +454,55 @@ def ical_events(text):
     return events
 
 
-def section_timetable(start_date, end_date):
-    z = ["## Uni hours according to the timetable", ""]
+_timetable = {}
+
+
+def timetable(start_date, end_date):
+    """(problem or None, {course: [time, days]}, total). The iCal file is fetched once per run."""
     url = SETTINGS.get("timetable_ical")
     if not url:
-        return z + ["Not set up yet (no timetable_ical link in settings.json)."]
-    text, error = None, None
-    for attempt in dict.fromkeys([url, url.replace("https://", "http://", 1)]):
-        try:
-            with urllib.request.urlopen(attempt, timeout=30) as r:
-                text = r.read().decode("utf-8", errors="replace")
-            break
-        except Exception as e:
-            error = e
-    if text is None:
-        return z + [f"_Timetable not available: {error}_"]
+        return "Not set up yet (no timetable_ical link in settings.json).", {}, timedelta()
+    if "events" not in _timetable:
+        text, error = None, None
+        for attempt in dict.fromkeys([url, url.replace("https://", "http://", 1)]):
+            try:
+                with urllib.request.urlopen(attempt, timeout=30) as r:
+                    text = r.read().decode("utf-8", errors="replace")
+                break
+            except Exception as e:
+                error = e
+        _timetable["events"] = ical_events(text) if text is not None else None
+        _timetable["error"] = error
+    if _timetable["events"] is None:
+        return f"_Timetable not available: {_timetable['error']}_", {}, timedelta()
     courses = defaultdict(lambda: [timedelta(), set()])
     total = timedelta()
-    for s, e, title in ical_events(text):
+    for s, e, title in _timetable["events"]:
         if start_date <= s.date() <= end_date:
             courses[title][0] += e - s
             courses[title][1].add(s.date())
             total += e - s
+    return None, courses, total
+
+
+def timetable_by_subject(courses):
+    per_subject = defaultdict(timedelta)
+    for title, (t, _) in courses.items():
+        per_subject[course_subject(title) or "(not mapped)"] += t
+    return per_subject
+
+
+def section_timetable(start_date, end_date):
+    z = ["## Uni hours according to the timetable", ""]
+    problem, courses, total = timetable(start_date, end_date)
+    if problem:
+        return z + [problem]
     if not courses:
         return z + ["No courses in this period."]
-    per_subject = defaultdict(timedelta)
+    per_subject = timetable_by_subject(courses)
     z += [f"Scheduled total: **{duration(total)}**", "", "| Course | Subject | Hours | Days |", "|---|---|---:|---|"]
     for title, (t, ds) in sorted(courses.items(), key=lambda kv: -kv[1][0]):
         subject = course_subject(title)
-        per_subject[subject or "(not mapped)"] += t
         z.append(f"| {cell(title)} | {cell(subject or '–')} | {duration(t)} | {days_text(ds)} |")
     z += ["", "Per subject: " + ", ".join(f"{s} {duration(t)}" for s, t in
                                        sorted(per_subject.items(), key=lambda st: -st[1]))]
@@ -530,10 +574,8 @@ def read_strava(source):
     return data if isinstance(data, list) else []
 
 
-def section_sport(start_date, end_date, strava):
-    z = ["## Sport (Strava)", ""]
-    if strava is None:
-        return z + ["Not queried (no Strava data passed in)."]
+def sport_activities(start_date, end_date, strava):
+    """([(date, activity)] in the period, sorted, and the errors of the Strava query)."""
     errors = [a["error"] for a in strava if isinstance(a, dict) and a.get("error")]
     acts = []
     for a in strava:
@@ -544,23 +586,48 @@ def section_sport(start_date, end_date, strava):
         if start_date <= d <= end_date:
             acts.append((d, a))
     acts.sort(key=lambda da: da[0])
+    return acts, errors
+
+
+def per_sport(acts):
+    """{sport: [sessions, minutes, km]}"""
+    result = defaultdict(lambda: [0, 0, 0.0])
+    for _, a in acts:
+        p = result[a.get("sport") or "?"]
+        p[0] += 1
+        p[1] += int(a.get("min") or 0)
+        p[2] += float(a.get("km") or 0)
+    return result
+
+
+def heaviest_sets(acts):
+    """{exercise: (kg, reps)} with the heaviest working set in these activities."""
+    best = {}
+    for _, a in acts:
+        for e in a.get("exercises") or []:
+            if isinstance(e, list) and len(e) == 4 and e[1] is not None:
+                if e[0] not in best or (e[1], e[2] or 0) > best[e[0]]:
+                    best[e[0]] = (e[1], e[2] or 0)
+    return best
+
+
+def section_sport(start_date, end_date, strava):
+    z = ["## Sport (Strava)", ""]
+    if strava is None:
+        return z + ["Not queried (no Strava data passed in)."]
+    acts, errors = sport_activities(start_date, end_date, strava)
     if errors:
         z += [f"_{errors[0]}_", ""]
     if not acts:
         return z + ["No activities in this period." if not errors else "So no sport data."]
 
-    per_sport = defaultdict(lambda: [0, 0, 0.0])  # sessions, minutes, km
-    for _, a in acts:
-        p = per_sport[a.get("sport") or "?"]
-        p[0] += 1
-        p[1] += int(a.get("min") or 0)
-        p[2] += float(a.get("km") or 0)
+    sports = per_sport(acts)
     z += ["| Sport | Sessions | Time | Distance |", "|---|---:|---:|---:|"]
-    for sport, (n, minutes, km) in sorted(per_sport.items(), key=lambda kv: -kv[1][1]):
+    for sport, (n, minutes, km) in sorted(sports.items(), key=lambda kv: -kv[1][1]):
         z.append(f"| {cell(sport)} | {n} | {duration(timedelta(minutes=minutes))} | {km_text(km)} |")
-    n_total = sum(p[0] for p in per_sport.values())
-    min_total = sum(p[1] for p in per_sport.values())
-    km_total = sum(p[2] for p in per_sport.values())
+    n_total = sum(p[0] for p in sports.values())
+    min_total = sum(p[1] for p in sports.values())
+    km_total = sum(p[2] for p in sports.values())
     z.append(f"| **Total** | **{n_total}** | **{duration(timedelta(minutes=min_total))}** | "
              f"**{km_text(km_total)}** |")
     z += ["", f"Sport on {len({d for d, _ in acts})} of {(end_date - start_date).days + 1} days. "
@@ -598,6 +665,118 @@ def section_sport(start_date, end_date, strava):
     return z
 
 
+# ---------- Comparison ----------
+
+def previous_period(kind, start_date):
+    """(start, end, label) of the week or month before."""
+    if kind == "week":
+        s = start_date - timedelta(days=7)
+        e = s + timedelta(days=6)
+        return s, e, f"W{s.isocalendar()[1]}: {short_day(s)} – {short_day(e)}"
+    y, m = months_back(start_date.year, start_date.month, 1)
+    return date(y, m, 1), start_date - timedelta(days=1), f"{MONTH_NAMES[m - 1]} {y}"
+
+
+def change(now, before):
+    """Difference with an arrow: timedelta -> "+1 h 05 min ▲", numbers -> "−2 ▼", equal -> "±0"."""
+    if isinstance(now, timedelta):
+        minutes = round((now - before).total_seconds() / 60)
+        if minutes == 0:
+            return "±0"
+        return f"{'+' if minutes > 0 else '−'}{duration(timedelta(minutes=abs(minutes)))} {'▲' if minutes > 0 else '▼'}"
+    diff = round(now - before, 1)
+    if not diff:
+        return "±0"
+    text = f"{abs(diff):g}" if isinstance(diff, float) else str(abs(diff))
+    return f"{'+' if diff > 0 else '−'}{text} {'▲' if diff > 0 else '▼'}"
+
+
+def sport_text(n, minutes, km):
+    if not n:
+        return "–"
+    return f"{n} × {duration(timedelta(minutes=minutes))}" + (f", {km_text(km)}" if km else "")
+
+
+def first_claude_day():
+    """Day of the oldest row in claude-activity.csv, or None."""
+    try:
+        with open(CSV, newline="", encoding="utf-8") as fh:
+            days = [local(r.get("end_utc") or "") for r in csv.DictReader(fh)]
+    except OSError:
+        return None
+    days = [d.date() for d in days if d]
+    return min(days) if days else None
+
+
+def section_comparison(kind, start_date, end_date, strava, today):
+    p_start, p_end, label = previous_period(kind, start_date)
+    word = "week" if kind == "week" else "month"
+    z = [f"## Comparison with the previous {word} ({label})", "",
+         f"| | This {word} | Previous {word} | Change |", "|---|---:|---:|---:|"]
+    row = lambda name, now, before, fmt=str: z.append(
+        f"| {name} | {fmt(now)} | {fmt(before)} | {change(now, before)} |")
+    now_w, before_w = working_time(start_date, end_date), working_time(p_start, p_end)
+    row("**Active time total**", now_w["total"], before_w["total"], lambda t: f"**{duration(t)}**")
+    row("Days with active time", len(now_w["days"]), len(before_w["days"]))
+    keys = {k for k, t in list(now_w["proj"].items()) + list(before_w["proj"].items()) if t >= timedelta(minutes=1)}
+    for a in sorted({a for a, _ in keys}, key=area_order):
+        area_time = lambda w: sum((t for (aa, _), t in w["proj"].items() if aa == a), timedelta())
+        row(f"**{a}**", area_time(now_w), area_time(before_w), lambda t: f"**{duration(t)}**")
+        for _, p in sorted((k for k in keys if k[0] == a),
+                           key=lambda k: (-now_w["proj"].get(k, timedelta()), -before_w["proj"].get(k, timedelta()))):
+            row(f"– {cell(p)}", now_w["proj"].get((a, p), timedelta()), before_w["proj"].get((a, p), timedelta()), duration)
+
+    problem, now_c, now_total = timetable(start_date, end_date)
+    if not problem:
+        _, before_c, before_total = timetable(p_start, p_end)
+        row("**Uni attendance (timetable)**", now_total, before_total, lambda t: f"**{duration(t)}**")
+        now_s, before_s = timetable_by_subject(now_c), timetable_by_subject(before_c)
+        for s in sorted(set(now_s) | set(before_s), key=lambda s: -now_s.get(s, timedelta())):
+            row(f"– {cell(s)}", now_s.get(s, timedelta()), before_s.get(s, timedelta()), duration)
+
+    now_git, before_git = collect_git(start_date, end_date)[0], collect_git(p_start, p_end)[0]
+    row("Commits", len(now_git), len(before_git))
+    now_chats, before_chats = collect_chats(start_date, end_date), collect_chats(p_start, p_end)
+    if now_chats is not None:
+        row("claude.ai chats", len(now_chats), len(before_chats or {}))
+
+    heavier = []
+    if strava is not None:
+        now_acts, _ = sport_activities(start_date, end_date, strava)
+        before_acts, _ = sport_activities(p_start, p_end, strava)
+        now_sp, before_sp = per_sport(now_acts), per_sport(before_acts)
+        row("**Sport sessions**", len(now_acts), len(before_acts), lambda n: f"**{n}**")
+        row("Sport time", timedelta(minutes=sum(v[1] for v in now_sp.values())),
+            timedelta(minutes=sum(v[1] for v in before_sp.values())), duration)
+        for sport in sorted(set(now_sp) | set(before_sp), key=lambda s: -now_sp.get(s, [0, 0, 0])[1]):
+            n, b = now_sp.get(sport, [0, 0, 0.0]), before_sp.get(sport, [0, 0, 0.0])
+            z.append(f"| – {cell(sport)} | {sport_text(*n)} | {sport_text(*b)} | {change(n[0], b[0])} |")
+        now_best, before_best = heaviest_sets(now_acts), heaviest_sets(before_acts)
+        heavier = [f"{cell(name)} {set_text(*before_best[name])} → {set_text(*best)}"
+                   for name, best in sorted(now_best.items())
+                   if name in before_best and best > before_best[name]]
+    if heavier:
+        z += ["", f"Gym, heaviest set better than in the previous {word} (more weight or more reps): "
+              + "; ".join(heavier)]
+
+    notes = []
+    first = first_claude_day()
+    if p_start < keep_from(today) or (first and first > p_start):
+        since = max(keep_from(today), first or keep_from(today))
+        notes.append(f"_Claude Code data only goes back to {short_day(since)}, so the previous {word} is "
+                     "incomplete; do not read its lower hours as a real change._")
+    try:
+        since = activitywatch.first_entry()
+    except Exception:
+        since = None
+    if since and since > p_start:
+        notes.append(f"_Apps on the Mac are only tracked since {short_day(since)}, so the previous {word} "
+                     "has less app time; compare Claude Code time with care._")
+    if strava is None:
+        notes.append("_No Strava data, so no sport comparison._")
+    return z + ([""] + notes if notes else [])
+
+
 # ---------- Commands ----------
 
 def period(kind, value, today):
@@ -627,7 +806,8 @@ def period(kind, value, today):
 
 
 def data(kind, value=None, today=None, strava=None):
-    start_date, end_date, title, path = period(kind, value, today or date.today())
+    today = today or date.today()
+    start_date, end_date, title, path = period(kind, value, today)
     names = {**{a: a for a in AREAS}, **(SETTINGS.get("area_names") or {})}
     z = [f"# Data for the review · {title}", "",
          f"Review language: {SETTINGS.get('review_language') or 'English'}. Area names to use: "
@@ -638,7 +818,8 @@ def data(kind, value=None, today=None, strava=None):
                     lambda: section_git(start_date, end_date),
                     lambda: section_uni_files(start_date, end_date),
                     lambda: section_timetable(start_date, end_date),
-                    lambda: section_sport(start_date, end_date, strava)):
+                    lambda: section_sport(start_date, end_date, strava),
+                    lambda: section_comparison(kind, start_date, end_date, strava, today)):
         try:
             z += section()
         except Exception as e:
@@ -717,7 +898,7 @@ def months_back(year, month, n):
 def cleanup(today=None):
     today = today or date.today()
     previous_month = months_back(today.year, today.month, 1)
-    cutoff = start_of_previous_month(today)
+    cutoff = keep_from(today)
     if os.path.isdir(WEEKS):
         for name in os.listdir(WEEKS):
             m = WEEK_FILE.match(name)
@@ -761,6 +942,7 @@ if __name__ == "__main__":
         data(a[1], a[2] if len(a) > 2 else None, strava=strava)
     elif a[:1] == ["strava-query"] and len(a) >= 2 and a[1] in ("week", "month"):
         start_date, end_date, _, _ = period(a[1], a[2] if len(a) > 2 else None, date.today())
+        start_date = previous_period(a[1], start_date)[0]  # the previous period too, for the comparison
         print(STRAVA_JS.replace("__FROM__", start_date.isoformat()).replace("__TO__", end_date.isoformat()))
     elif a == ["save-chats"]:
         save_chats(json.load(sys.stdin))

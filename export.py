@@ -14,8 +14,8 @@ counted from the moment it was your turn:
 - Automated runs (scheduled tasks) and system messages do not count.
 - Area is Work, Uni, Private or Other (see common.py); for Uni the project is the subject.
 - Worktrees count towards their main project, sessions without a folder towards "(no project folder)".
-- The CSV keeps only the current and the previous month; the monthly review needs no more.
-  Older rows are removed on every run.
+- The CSV keeps only the current and the two previous months; the monthly review compares
+  the past month with the one before and needs no more. Older rows are removed on every run.
 - Until then rows are kept even if Claude has already deleted the transcript.
 
 Also records which documents were opened in ONLYOFFICE (documents.csv), see remember_documents()."""
@@ -23,7 +23,7 @@ import csv, glob, json, os, re, sys
 from datetime import date, datetime, timedelta
 
 sys.dont_write_bytecode = True  # no __pycache__ folder next to the scripts
-from common import BASE, HOME, classify, iso, local_date, parse_time, start_of_previous_month
+from common import BASE, HOME, classify, iso, local_date, parse_time, keep_from
 
 TRANSCRIPTS = os.path.join(HOME, ".claude", "projects")
 CSV = os.path.join(BASE, "claude-activity.csv")
@@ -130,7 +130,7 @@ def remember_documents(today):
                 rows.add((t.isoformat(timespec="minutes"), f.get("path")))
     except (OSError, ET.ParseError):
         pass
-    cutoff = start_of_previous_month(today).isoformat()
+    cutoff = keep_from(today).isoformat()
     keep = sorted(r for r in rows if r[0] >= cutoff)
     if set(keep) != before:
         tmp = DOCUMENTS + ".tmp"
@@ -159,7 +159,7 @@ def main(today=None):
                 rows[end] = (start, r.get("area") or "Other", r.get("project") or "")
     rows.update(new)
 
-    cutoff = start_of_previous_month(today)
+    cutoff = keep_from(today)
     keep = sorted((s, end, a, p) for end, (s, a, p) in rows.items()
                   if (local_date(end) or date.min) >= cutoff)
     tmp = CSV + ".tmp"

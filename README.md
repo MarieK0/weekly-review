@@ -5,7 +5,7 @@ collected on your Mac. Four parts work together:
 
 | Part | When | What it does |
 |---|---|---|
-| **Weekly review** | Mondays 8:00 | Claude posts a review of the past week in the chat of a scheduled task. |
+| **Weekly review** | Mondays 8:00 | Claude posts a review of the past week in the chat of a scheduled task, split into Work, Uni and Private, with a comparison with the week before at the end. |
 | **Monthly review** | 1st of the month, 8:00 | Claude posts a review of the past month, with weekly trends, a list of work hours per day and a comparison with the month before. |
 | **Chat log** | daily 0:00 | Notes the date and title of your claude.ai chats, so they still count after you delete them. |
 | **Activity export** | hourly (cron) | Saves when you were active in Claude Code, before Claude Code deletes old transcripts, and cleans up old data. |
@@ -16,51 +16,73 @@ review in the language you choose.
 
 ## What the reviews contain
 
-**Weekly review** (about one screen):
+Both reviews use the same layout, so they are quick to scan:
 
-- **Overview** of the week in a few sentences.
-- **Working hours:** a table grouped by area (Work, Uni, Private, Other) with a subtotal per area
-  and a row per project or subject. Only active time counts (see below). For Uni, a second column
-  shows the hours of your timetable, plus a "Uni total" of both.
-- **Uni:** per subject, what happened: Claude sessions, chats, commits, changed files. Subjects
-  without any activity are named too.
-- **Work:** per project, what moved forward, summarised from your commit messages.
-- **Private:** a short summary.
-- **Sport:** sessions per sport with time and distance from Strava. For the gym (logged with
-  [Hevy](https://www.hevyapp.com/) and synced to Strava): which workouts, how many working sets
-  and which exercises got heavier.
-- **Notable:** one or two observations, e.g. very long days, a lot of work after midnight,
-  subjects that were left lying, or a week without sport.
+| Section | What is in it |
+|---|---|
+| **Overview** | A few sentences on how the period went and a small table with the active time per area. |
+| **💼 Work** | A table per project (active time, days, commits) and what moved forward, summarised from your commit messages. |
+| **🎓 Uni** | A table per subject: active time at the computer, hours of your timetable and both together, plus a line on what happened in each subject. |
+| **🏠 Private** | Private projects (e.g. a hobby website) and, as **🏃 Sport**, your Strava activities: sessions, time and distance per sport; for the gym (logged with [Hevy](https://www.hevyapp.com/) and synced to Strava) the workouts, working sets and exercises that got heavier. |
+| **💡 Notable** | One or two observations, e.g. very long days, a lot of work after midnight, subjects that were left lying, or apps that could not be assigned. |
+| **📈 Compared with last week / month** | At the very end: a compact table with last period, this period and the change (▲/▼) for every area, commits and sport, plus two or three sentences on what changed most. |
 
-**Monthly review** (one to two screens), the same areas for the whole month plus:
+Only active time counts as hours (see below). The **monthly review** additionally has:
 
 - a table per week, so you can see the trend over the month,
 - a **list of work hours per day** with the monthly sum, ready to pass on (e.g. for invoicing),
 - gym progress for exercises you did several times (first → last session, heaviest set),
-- a comparison with the previous month and two or three points for the next one,
+- two or three points for the next month,
 - housekeeping: it archives old review chats in the Claude app so the sidebar stays tidy.
 
 If a source is not set up or fails (e.g. you are logged out of Strava), the review says so in
-one sentence and carries on with the rest.
+one sentence and carries on with the rest. If the previous period has less data (e.g. app
+tracking started in the middle of it), the comparison says so instead of reporting it as a
+real change.
 
 ### Example (made-up numbers)
 
-> **Working hours**
+> # Weekly review · Week 45 · 2–8 Nov
 >
-> | Area / project | Active | Timetable |
+> A solid week: most of the time went into MyApp, and you made it to almost every lecture.
+>
+> | Area | Active | Timetable |
 > |---|---:|---:|
-> | **Work** | **14 h 20 min** | |
-> | – MyApp | 11 h 05 min | |
-> | – Website | 3 h 15 min | |
-> | **Uni** | **6 h 40 min** | **6 h 20 min** |
-> | – Databases | 4 h 10 min | 3 h 10 min |
-> | – Java | 2 h 30 min | 3 h 10 min |
-> | **Total** | **21 h 00 min** | |
+> | 💼 Work | 14 h 20 min | |
+> | 🎓 Uni | 6 h 40 min | 6 h 20 min |
+> | 🏠 Private | 1 h 10 min | |
+> | **Total** | **22 h 10 min** | |
 >
-> 3 claude.ai chats: 2 Work, 1 Uni.
+> ## 💼 Work
 >
-> **Sport:** 3 gym sessions (Upper 1, Lower 1, Upper 2, 58 working sets), 2 runs with 9.1 km.
+> | Project | Active | Days | Commits |
+> |---|---:|---:|---:|
+> | MyApp | 11 h 05 min | 5 | 42 |
+> | Website | 3 h 15 min | 2 | 9 |
+>
+> **MyApp:** the new export is done and the settings page got a cleanup. …
+>
+> ## 🏠 Private
+>
+> **Hobby website:** 1 h 10 min on the new character pages.
+>
+> ### 🏃 Sport
+>
+> 3 gym sessions (Upper 1, Lower 1, Upper 2, 58 working sets) and 2 runs with 9.1 km.
 > Romanian deadlift went from 50 kg × 11 to 60 kg × 6.
+>
+> …
+>
+> ## 📈 Compared with last week
+>
+> | | Last week | This week | Change |
+> |---|---:|---:|---:|
+> | Active total | 18 h 40 min | 22 h 10 min | +3 h 30 min ▲ |
+> | Work | 12 h 05 min | 14 h 20 min | +2 h 15 min ▲ |
+> | Uni (timetable) | 7 h 50 min | 6 h 20 min | −1 h 30 min ▼ |
+> | Sport sessions | 4 | 5 | +1 ▲ |
+>
+> More work and one more workout than last week; one lecture was cancelled.
 
 ## Where the data comes from
 
@@ -151,7 +173,7 @@ Everything else falls into Other, named after its top folder in your home direct
 | `common.py` | Settings and the mapping from folders to area and project. |
 | `export.py` | Hourly: writes the spans in which you were active in Claude Code to `claude-activity.csv` and records which documents were opened in ONLYOFFICE (`documents.csv`). |
 | `activitywatch.py` | Reads app and window activity from ActivityWatch and assigns it. |
-| `review.py` | `data week\|month` prints all data for a period as Markdown, `strava-query` builds the Strava query, `save-chats` and `projects` are used by the chat log task, `cleanup` deletes old data. |
+| `review.py` | `data week\|month` prints all data for a period as Markdown (ending with the comparison with the previous period), `strava-query` builds the Strava query, `save-chats` and `projects` are used by the chat log task, `cleanup` deletes old data. |
 | `tasks/` | Prompts of the three scheduled tasks. |
 
 ## Privacy and cleanup
@@ -162,7 +184,8 @@ timetable link and, in the Claude app's browser, Strava and claude.ai. Your data
 
 - No message or chat content is stored, only times, folder names and chat titles.
 - Strava activities are read during the review and never written to disk.
-- The CSVs and ActivityWatch entries keep only the current and the previous month.
+- The CSVs and ActivityWatch entries keep only the current and the two previous months
+  (enough for the monthly review to compare the past month with the one before).
 - The review itself is posted in the task's chat. `weeks/` and `months/` only hold short notes
   that later reviews read as background: weekly notes are deleted once their month has monthly
   notes, monthly notes after 12 months.

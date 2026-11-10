@@ -119,5 +119,8 @@ def iso(t):
     return t.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.") + f"{t.microsecond // 1000:03d}Z"
 
 
-def start_of_previous_month(today):
-    return date(today.year - (today.month == 1), (today.month - 2) % 12 + 1, 1)
+def keep_from(today):
+    """First day that collected data is kept for: the 1st of the month two months back, so the
+    monthly review can still compare the past month with the one before it."""
+    i = today.year * 12 + today.month - 1 - 2
+    return date(i // 12, i % 12 + 1, 1)
