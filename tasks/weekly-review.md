@@ -23,8 +23,8 @@ Write my weekly review for the last full week (Monday to Sunday). Casual tone, a
    - Uni: per subject, what happened (Claude sessions, chats, commits, changed files). Briefly name subjects without any activity.
    - Work: per project, 1 to 2 sentences on what moved forward. Summarise the commit subjects instead of listing them.
    - Private: short.
-   - Sport: sessions per sport with time and distance; for the gym, which sessions (e.g. Upper/Lower), how many working sets, and exercises where the weight went up. There are no steps (Strava does not count them); leave them out.
-   - Notable: 1 to 2 observations, e.g. very long days, a lot of work after midnight, subjects that were left lying, a week without sport.
+   - Sport: sessions per sport with time and distance; for the gym, which sessions (e.g. Upper/Lower), how many working sets, and exercises where the weight went up. There are no steps (Strava does not count them); leave them out. Only Strava is known: if a sport is missing, say it is not in Strava (it may not have synced), not that I did not do it.
+   - Notable: 1 to 2 observations, e.g. very long days, a lot of work after midnight, subjects that were left lying, a week without sport in Strava.
 
 4. Save short notes for later reviews (only Claude reads them, so write them in English and keep them compact): the key numbers per area and project/subject, Uni attendance, sport summary, and the notable points. Save them as a Markdown file at the path given at the top of the data under "Save the review notes as" (relative to ~/weekly-review). Create the folder if it is missing.
 

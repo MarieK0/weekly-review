@@ -28,7 +28,7 @@ Write my monthly review for the previous full month. Casual tone, addressing me 
    - Uni: per subject, what happened. Which subjects got a lot and which hardly any attention.
    - Work: per project the most important progress of the month, summarised from the commit subjects.
    - Private: short.
-   - Sport: sessions and time per sport, trend per week, gym progress for exercises that came up several times (first → last session, heaviest set). There are no steps (Strava does not count them); leave them out.
+   - Sport: sessions and time per sport, trend per week, gym progress for exercises that came up several times (first → last session, heaviest set). There are no steps (Strava does not count them); leave them out. Only Strava is known: if a sport is missing, say it is not in Strava (it may not have synced), not that I did not do it.
    - Notable and for next month: 2 to 3 points, including how the month compares to the previous one if there are notes for it.
 
 4. Save short notes for later reviews (only Claude reads them, so write them in English and keep them compact): the key numbers per area and project/subject, the Work hours per day, Uni attendance, sport summary, and the notable points. Save them as a Markdown file at the path given at the top of the data under "Save the review notes as" (relative to ~/weekly-review). Create the folder if it is missing.
