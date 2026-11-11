@@ -11,6 +11,9 @@ Usage:
   review.py save-chats < chats.json        add claude.ai chats to the chat log (chats.csv)
   review.py projects                       known work projects, subjects and private folders
                                            (helps the chat log task to assign chats)
+  review.py titles week|month [..]          window titles of the period that no rule could
+                                           assign, for Claude to sort (e.g. slides, ChatGPT)
+  review.py save-titles < titles.json      remembers those decisions in titles.csv
   review.py cleanup                        deletes what is no longer needed
 
 Sources: claude-activity.csv (from export.py), ActivityWatch (apps on the Mac, see
@@ -18,16 +21,15 @@ activitywatch.py), chats.csv (claude.ai), Git and GitHub, changed files in the s
 the timetable (iCal link in settings.json) and Strava (only read during the review, never
 stored). Anything that is not set up is skipped.
 
-The review itself is posted in the scheduled task's chat; weeks/ and months/ only hold short
-notes that later reviews read as background.
+The review is saved in weeks/ and months/; a chat task can show it from there.
 
 Cleanup:
 - ActivityWatch entries older than the two previous months are deleted (at most 3000 per run).
-- weeks/YYYY-Www.md is deleted as soon as months/ has the notes of its month
+- weeks/YYYY-Www.md is deleted a week after months/ has the review of its month
   (a week belongs to the month of its Sunday).
 - months/YYYY-MM.md is deleted after KEEP_MONTHS months.
 - chats.csv keeps only the current and the two previous months (enough to compare the
-  monthly review with the month before).
+  monthly review with the month before); titles.csv the decisions made in that time.
 Only files named exactly like above are deleted.
 
 Claude Code time is only the time in which you were active (export.py explains how it is
@@ -38,7 +40,7 @@ from datetime import date, datetime, timedelta, timezone
 
 sys.dont_write_bytecode = True  # no __pycache__ folder next to the scripts
 from common import (AREAS, BASE, PRIVATE_DIRS, REPO_SUBJECTS, SETTINGS, TERM_FOLDER, UNI_DIRS,
-                    WORK_DIR, WORK_PROJECTS, area_order, classify, keep_from)
+                    WORK_DIR, WORK_PROJECTS, area_order, classify, keep_from, target)
 from export import BREAK_MIN, CSV, FLAT_MIN
 import activitywatch
 
@@ -56,6 +58,9 @@ WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 WEEK_FILE = re.compile(r"^(\d{4})-W(\d{2})\.md$")
 MONTH_FILE = re.compile(r"^(\d{4})-(\d{2})\.md$")
 CHAT_COLUMNS = ["date", "title", "area", "subject"]
+# A window title that says nothing by itself (decision "context", e.g. "ChatGPT") takes the
+# course running at that moment or the activity at most this far before or after it
+CONTEXT_MIN = 20
 
 
 # ---------- Helpers ----------
@@ -145,19 +150,72 @@ def claude_spans(start_date, end_date):
     return rows
 
 
+def merge(intervals):
+    """Overlapping (start, end) intervals merged, sorted."""
+    out = []
+    for s, e in sorted(intervals):
+        if out and s <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], e))
+        else:
+            out.append((s, e))
+    return out
+
+
+def course_times(start_date, end_date):
+    """[(start, end, subject or None)] of the timetable courses in the period ([] without timetable)."""
+    problem, _, _ = timetable(start_date, end_date)
+    if problem:
+        return []
+    return [(s, e, course_subject(t)) for s, e, t in _timetable["events"] if start_date <= s.date() <= end_date]
+
+
+def nearest(s, e, known):
+    """Target of the activity in known [(start, end, target)] closest to the span s..e,
+    if it is at most CONTEXT_MIN away, else None."""
+    best, best_gap = None, timedelta(minutes=CONTEXT_MIN)
+    for ks, ke, k in known:
+        gap = max(ks - e, s - ke, timedelta())
+        if gap <= best_gap:
+            best, best_gap = k, gap
+    return best
+
+
+def context_target(s, e, courses, known):
+    """Where time with a generic window title goes: the course running at that moment, else the
+    nearest activity (see nearest), else settings.json "context_default", else None."""
+    for cs, ce, subject in courses:
+        if cs < e and s < ce:
+            return ("Uni", subject or "(general)")
+    t = nearest(s, e, known)
+    if t:
+        return t
+    default = SETTINGS.get("context_default")
+    return target(default) if default else None
+
+
 def working_time(start_date, end_date):
     """Active time in a period as a dict: total, proj {(area, project): time},
     source {(area, project, "claude"|"apps"): time}, proj_days, days {date: (total, by_area, from, to)},
-    messages, apps {(app, area, project): seconds}, unassigned {app: seconds}, notes."""
+    messages, apps {(app, area, project): seconds}, unassigned {app: seconds},
+    in_class {subject: Uni time during timetable courses}, notes."""
     spans = [(s, e, (a, p, "claude")) for s, e, (a, p) in claude_spans(start_date, end_date)]
     messages = len(spans)
     notes, unassigned, apps = [], {}, defaultdict(float)
+    courses = course_times(start_date, end_date)
     try:
         aw = activitywatch.spans(start_date, end_date)
         for s, e, (a, p), app in aw["assigned"]:
             spans.append((s, e, (a, p, "apps")))
             apps[(app, a, p)] += (e - s).total_seconds()
-        unassigned = aw["unassigned"]
+        unassigned = dict(aw["unassigned"])
+        known = [(s, e, (a, p)) for s, e, (a, p, _) in spans]
+        for s, e, app, title in aw["context"]:
+            t = context_target(s, e, courses, known)
+            if t:
+                spans.append((s, e, (*t, "apps")))
+                apps[(app, *t)] += (e - s).total_seconds()
+            else:
+                unassigned[app] = unassigned.get(app, 0) + (e - s).total_seconds()
         since = activitywatch.first_entry()
         if since and since > start_date:
             notes.append(f"_Apps on the Mac (ActivityWatch) are only tracked since {short_day(since)}; "
@@ -180,8 +238,16 @@ def working_time(start_date, end_date):
             by_area[a] += time_
         day_start = datetime.combine(d, datetime.min.time())
         days[d] = (t, by_area, max(day_start, min(s for s, _, _ in sp)), max(e for _, e, _ in sp))
+    in_class = defaultdict(timedelta)
+    lectures = merge((s, e) for s, e, _ in courses)
+    for p in {p for _, _, (a, p, _) in spans if a == "Uni"}:
+        for s, e in merge((s, e) for s, e, (a, pp, _) in spans if a == "Uni" and pp == p):
+            for cs, ce in lectures:
+                if cs < e and s < ce:
+                    in_class[p] += min(e, ce) - max(s, cs)
     return {"total": total, "proj": proj, "source": source, "proj_days": proj_days, "days": days,
-            "messages": messages, "apps": apps, "unassigned": unassigned, "notes": notes}
+            "messages": messages, "apps": apps, "unassigned": unassigned, "in_class": dict(in_class),
+            "notes": notes}
 
 
 def section_working_time(start_date, end_date, is_month):
@@ -226,6 +292,11 @@ def section_working_time(start_date, end_date, is_month):
         z += ["", "| App | Time | Assigned to |", "|---|---:|---|"]
         for (app, a, p), sec in sorted(apps.items(), key=lambda kv: -kv[1])[:15]:
             z.append(f"| {cell(app)} | {duration(timedelta(seconds=sec))} | {a} / {cell(p)} |")
+    if any(t >= timedelta(minutes=1) for t in w["in_class"].values()):
+        z += ["", "Uni active time during timetable courses (already part of the timetable hours, so count it "
+              "only once when adding active time and timetable): "
+              + ", ".join(f"{cell(p)} {duration(t)}" for p, t in sorted(w["in_class"].items(), key=lambda pt: -pt[1])
+                         if t >= timedelta(minutes=1))]
     if unassigned:
         rest = sorted(unassigned.items(), key=lambda kv: -kv[1])
         subtotal = timedelta(seconds=sum(unassigned.values()))
@@ -234,7 +305,8 @@ def section_working_time(start_date, end_date, is_month):
     z += [""] + notes + [
         f"_Active time: Claude Code from Claude's reply to your next message (reading, testing, writing), "
         f"gaps over {BREAK_MIN} min count as a flat {FLAT_MIN} min; apps = time in the active window while you "
-        "were at the computer, assigned by app, project or file name. Claude windows only count via "
+        "were at the computer, assigned by app, project or file name and by the titles sorted with review.py titles "
+        "(generic ones like ChatGPT go to the course or activity around them). Claude windows only count via "
         "Claude Code, simultaneous time only counts once._"]
     return z
 
@@ -850,6 +922,94 @@ def save_chats(entries):
     print(f"{new} new entries, {len(known)} in total in chats.csv")
 
 
+PENDING = os.path.join(BASE, "titles-pending.json")  # number -> title of the last titles list
+
+
+def titles(kind, value=None, today=None):
+    """Prints the window titles of a period that no rule could assign, or only to an area (at
+    least 1 minute each), with the course running at that time and what you did around it, so
+    Claude can sort them. Each gets a number for save-titles (titles can be very long)."""
+    today = today or date.today()
+    start_date, end_date, label, _ = period(kind, value, today)
+    try:
+        aw = activitywatch.spans(start_date, end_date)
+    except Exception as e:
+        print(f"ActivityWatch not reachable ({type(e).__name__}): nothing to sort.")
+        return
+    courses = course_times(start_date, end_date)
+    known = [(s, e, k) for s, e, k in claude_spans(start_date, end_date)]
+    known += [(s, e, k) for s, e, k, _ in aw["assigned"]]
+
+    def rows(found):
+        out = []
+        for (app, title), sp in found.items():
+            seconds = sum((e - s).total_seconds() for s, e in sp)
+            if seconds < 60:
+                continue
+            during, around = defaultdict(float), defaultdict(float)
+            for s, e in sp:
+                for cs, ce, subject in courses:
+                    if cs < e and s < ce:
+                        during[subject or "(course without subject)"] += (min(e, ce) - max(s, cs)).total_seconds()
+                k = nearest(s, e, [x for x in known if x[0] != s])
+                if k and k[1] != "(general)":
+                    around["/".join(k)] += (e - s).total_seconds()
+            top = lambda d: ", ".join(k for k, _ in sorted(d.items(), key=lambda kv: -kv[1])[:2]) or "–"
+            out.append((seconds, title, app, {s.date() for s, _ in sp}, top(during), top(around)))
+        return sorted(out, key=lambda r: -r[0])
+
+    unassigned, general = rows(aw["titles"]), rows(aw["general"])
+    print(f"# Window titles to sort · {label}\n")
+    if not unassigned and not general:
+        print("Nothing to sort.")
+        return
+    pending = {}
+    for heading, found in (("Not assigned", unassigned), ("Only assigned to an area (give the subject or project if it is clear)", general)):
+        if not found:
+            continue
+        print(f"## {heading}\n\n| No. | Title | App | Time | Days | During a course | Around it |\n|---|---|---|---:|---|---|---|")
+        for seconds, title, app, ds, during, around in found:
+            n = str(len(pending) + 1)
+            pending[n] = title
+            short = title if len(title) <= 160 else title[:157] + "…"
+            print(f"| {n} | {cell(short)} | {cell(app)} | {duration(timedelta(seconds=seconds))} | {days_text(ds)} "
+                  f"| {cell(during)} | {cell(around)} |")
+        print()
+    tmp = PENDING + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(pending, fh, ensure_ascii=False)
+    os.replace(tmp, PENDING)
+    print("Known projects and subjects:")
+    projects(today)
+
+
+def save_titles(entries, today=None):
+    """Remembers decisions [{"no": number from the titles list, "target": ...}] in titles.csv."""
+    today = today or date.today()
+    try:
+        with open(PENDING, encoding="utf-8") as fh:
+            pending = json.load(fh)
+    except (OSError, ValueError):
+        pending = {}
+    rows = activitywatch.load_decisions()
+    new, skipped = 0, []
+    for e in entries:
+        title = pending.get(str(e.get("no", "")).strip()) or str(e.get("title", "")).strip()
+        decision = str(e.get("target", "")).strip()
+        if not title or not activitywatch.valid_decision(decision):
+            skipped.append(e.get("no") or e.get("title"))
+            continue
+        new += title not in rows
+        rows[title] = (today.isoformat(), decision)
+    write_csv(activitywatch.TITLES, activitywatch.TITLE_COLUMNS,
+              sorted((t, d, when) for t, (when, d) in rows.items()))
+    if os.path.exists(PENDING):
+        os.remove(PENDING)
+    print(f"{new} new decisions, {len(rows)} in total in titles.csv"
+          + (f"; skipped (unknown number, or target not none, context or an area like Uni/Subject): {skipped}"
+             if skipped else ""))
+
+
 def projects(today=None):
     """Prints the known work projects, subjects and private folders, most recently changed first."""
     today = today or date.today()
@@ -945,6 +1105,10 @@ def cleanup(today=None):
             m = MONTH_FILE.match(name)
             if m and (int(m[1]), int(m[2])) < oldest:
                 os.remove(os.path.join(MONTHS, name))
+    decisions = activitywatch.load_decisions()
+    keep = {t: v for t, v in decisions.items() if v[0] >= cutoff.isoformat()}
+    if len(keep) < len(decisions):
+        write_csv(activitywatch.TITLES, activitywatch.TITLE_COLUMNS, sorted((t, d, w) for t, (w, d) in keep.items()))
     if os.path.exists(CHATS):
         with open(CHATS, newline="", encoding="utf-8") as fh:
             rows = list(csv.DictReader(fh))
@@ -972,6 +1136,10 @@ if __name__ == "__main__":
         start_date, end_date, _, _ = period(a[1], a[2] if len(a) > 2 else None, date.today())
         start_date = previous_period(a[1], start_date)[0]  # the previous period too, for the comparison
         print(STRAVA_JS.replace("__FROM__", start_date.isoformat()).replace("__TO__", end_date.isoformat()))
+    elif a[:1] == ["titles"] and len(a) >= 2 and a[1] in ("week", "month"):
+        titles(a[1], a[2] if len(a) > 2 else None)
+    elif a == ["save-titles"]:
+        save_titles(json.load(sys.stdin))
     elif a == ["save-chats"]:
         save_chats(json.load(sys.stdin))
     elif a == ["projects"]:

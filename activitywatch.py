@@ -14,7 +14,12 @@ Mapping, in this order:
    (a part of the app name -> area/project).
 4. Keywords in the window title (browser tabs, chat apps): subject names, work project names and
    settings.json "keywords", e.g. {"Uni/Databases": ["SQL"], "Uni": ["moodle"]}.
-Anything that does not match stays "unassigned" and does not count as working time.
+5. Decisions in titles.csv: titles no rule could assign (lecture slides opened from a download,
+   a chat or search about a course topic, ...) are sorted by Claude during the review
+   (review.py titles / save-titles) and remembered here. "context" means the title says nothing
+   by itself (e.g. "ChatGPT"); review.py then gives that time to the course running at that
+   moment or to what you did right before or after. "none" means leisure.
+Anything else stays "unassigned" and does not count as working time.
 
 cleanup() deletes entries before a cutoff date directly through the ActivityWatch API,
 at most DELETE_PER_RUN per call (the hourly run catches up on the rest)."""
@@ -22,13 +27,15 @@ import json, os, re, urllib.request
 from collections import defaultdict
 from datetime import datetime, time, timedelta
 
-from common import (HOME, PRIVATE_DIRS, SETTINGS, UNI_DIRS, WORK_DIR, WORK_PROJECTS, classify,
-                    target)
+from common import (AREAS, BASE, HOME, PRIVATE_DIRS, SETTINGS, UNI_DIRS, WORK_DIR, WORK_PROJECTS,
+                    classify, target)
 from export import DOCUMENTS, ONLYOFFICE_RECENTS
 
 API = "http://localhost:5600/api/0"
 DELETE_PER_RUN = 3000
 IGNORE = {"claude"}
+TITLES = os.path.join(BASE, "titles.csv")  # window title -> decision (see the docstring)
+TITLE_COLUMNS = ["title", "target", "decided"]
 APPS = {app.lower(): target(t) for app, t in (SETTINGS.get("apps") or {}).items()}
 SEPARATOR = re.compile(r"\s+[–—|·-]\s+|\s+[-–—]$")
 SKIP_DIRS = {"node_modules", "build", "dist", "out", "target", "__pycache__", "venv", ".git"}
@@ -121,12 +128,29 @@ def _document_history():
     return sorted(e for e in entries if e[1])
 
 
+def valid_decision(text):
+    """True for "none", "context", "Area" or "Area/Project" with a known area."""
+    return text in ("none", "context") or text.partition("/")[0] in AREAS
+
+
+def load_decisions():
+    """{title: (decided, decision)} from titles.csv."""
+    import csv
+    try:
+        with open(TITLES, newline="", encoding="utf-8") as fh:
+            return {r["title"]: (r.get("decided") or "", r["target"]) for r in csv.DictReader(fh)
+                    if r.get("title") and valid_decision(r.get("target") or "")}
+    except (OSError, KeyError):
+        return {}
+
+
 class Mapper:
     def __init__(self):
         self.names = defaultdict(dict)   # file/folder name (lower case) -> {(area, project): latest change}
         self.keywords = []               # (pattern, (area, project))
         self.cache = {}
         self.documents = _document_history()
+        self.decisions = {t: d for t, (_, d) in load_decisions().items()}
         self._build_index()
         self._build_keywords()
 
@@ -231,7 +255,7 @@ class Mapper:
         return None
 
     def assign(self, app, title):
-        """(area, project), "ignore" or None (unassigned)."""
+        """(area, project), "ignore", "context", "none" (decided: leisure) or None (unassigned)."""
         key = (app, title)
         if key not in self.cache:
             self.cache[key] = self._assign(app or "", title or "")
@@ -247,6 +271,11 @@ class Mapper:
         for name, t in APPS.items():
             if name in a:
                 return t
+        decision = self.decisions.get(title.strip()) if title else None
+        if decision in ("none", "context"):
+            return decision
+        if decision:
+            return target(decision)
         return self._from_keyword(title) if title else None
 
 
@@ -257,14 +286,18 @@ def _local_naive(ts):
 
 
 def spans(start_date, end_date):
-    """{"assigned": [(start, end, (area, project), app)], "unassigned": {app: seconds}}.
+    """{"assigned": [(start, end, (area, project), app)], "unassigned": {app: seconds},
+        "context": [(start, end, app, title)]  (to be assigned by what happened around them),
+        "titles": {(app, title): [(start, end)]}  (unassigned and not decided yet),
+        "general": {(app, title): [(start, end)]}  (only assigned to an area, e.g. Uni, by a keyword;
+                                                    Claude may refine them to a subject)}.
     Times are local time without time zone; events across midnight are split.
     Raises an exception if ActivityWatch cannot be reached."""
     tz = datetime.now().astimezone().tzinfo
     from_dt = datetime.combine(start_date, time.min).replace(tzinfo=tz)
     to_dt = datetime.combine(end_date + timedelta(days=1), time.min).replace(tzinfo=tz)
     m = Mapper()
-    assigned, unassigned = [], defaultdict(float)
+    assigned, unassigned, context, titles, general = [], defaultdict(float), [], defaultdict(list), defaultdict(list)
     for e in _active_windows(from_dt, to_dt):
         duration = float(e.get("duration") or 0)
         if duration < 1:
@@ -278,15 +311,27 @@ def spans(start_date, end_date):
             target = m.document_at(start)
         if target == "ignore":
             continue
-        if target is None:
+        title = (d.get("title") or "").strip()
+        if target in (None, "none"):
             unassigned[app] += duration
+            if target is None and title:
+                titles[(app, title)].append((start, end))
             continue
+        if target != "context" and target[1] == "(general)" and title and title not in m.decisions:
+            general[(app, title)].append((start, end))
         while start.date() < end.date():  # split at midnight
             midnight = datetime.combine(start.date() + timedelta(days=1), time.min)
-            assigned.append((start, midnight, target, app))
+            if target == "context":
+                context.append((start, midnight, app, title))
+            else:
+                assigned.append((start, midnight, target, app))
             start = midnight
-        assigned.append((start, end, target, app))
-    return {"assigned": assigned, "unassigned": dict(unassigned)}
+        if target == "context":
+            context.append((start, end, app, title))
+        else:
+            assigned.append((start, end, target, app))
+    return {"assigned": assigned, "unassigned": dict(unassigned), "context": context, "titles": dict(titles),
+            "general": dict(general)}
 
 
 def cleanup(cutoff):

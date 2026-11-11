@@ -5,8 +5,8 @@ collected on your Mac. Four parts work together:
 
 | Part | When | What it does |
 |---|---|---|
-| **Weekly review** | Mondays 8:00 | Claude posts a review of the past week in the chat of a scheduled task, with charts, split into Work, Uni and Private and with a comparison with the week before at the end, and sends you a notification. |
-| **Monthly review** | 1st of the month, 8:00 | The same for the past month, with weekly trends, a list of work hours per day and a comparison with the month before. |
+| **Weekly review** | Mondays 8:00 | Claude writes a review of the past week, split into Work, Uni and Private with a comparison with the week before at the end, and saves it in `weeks/`. A chat task can show it to you (see below). |
+| **Monthly review** | 1st of the month, 8:00 | The same for the past month in `months/`, with weekly trends, a list of work hours per day and a comparison with the month before. |
 | **Chat log** | daily 0:00 | Notes the date and title of your claude.ai chats, so they still count after you delete them. |
 | **Activity export** | hourly (cron) | Saves when you were active in Claude Code, before Claude Code deletes old transcripts, and cleans up old data. |
 
@@ -16,8 +16,7 @@ review in the language you choose.
 
 ## What the reviews contain
 
-Both reviews use the same layout, so they are quick to scan. They start with a chart (key numbers
-and active time per project; the monthly review adds charts per week and per day), followed by:
+Both reviews use the same layout, so they are quick to scan:
 
 | Section | What is in it |
 |---|---|
@@ -85,6 +84,20 @@ real change.
 >
 > More work and one more workout than last week; one lecture was cancelled.
 
+## Getting the review in a chat
+
+The review tasks run on your Mac and only save the review. To have it shown to you, nicely
+formatted and with a notification on your phone, set up a scheduled task in a normal Claude chat
+that reads the file from your Mac:
+
+- Connect the folder that contains this repo, so the task can read `weeks/` and `months/`.
+- Let it run a few times after the review (e.g. hourly on Monday to Wednesday for the weekly
+  review, on the 1st to 3rd for the monthly one), in case your Mac is off at 8:00.
+- Have it show the newest review once and then leave a marker such as `weeks/.shown-2026-W45`
+  (or `months/.shown-2026-10`); `cleanup` deletes old markers.
+- Ask it for charts at the top (key numbers, active time per project or subject) and the review
+  in your language below, keeping the layout and the comparison at the end.
+
 ## Where the data comes from
 
 | Source | What is used | Needed for |
@@ -108,8 +121,14 @@ Each source is optional; whatever is not set up is skipped.
   which Claude worked on its own does not count, and scheduled runs do not count either.
 - **Other apps:** time in the active window while you were at the computer. It is assigned by
   project or file names in the window title, by app rules and by keywords (see `settings.json`).
-  Anything that matches nothing is listed as "unassigned", with the biggest apps named, so you
-  can add a rule; it does not count as working time.
+- **Studying in the browser and elsewhere:** window titles that no rule matches (lecture slides
+  from a download, a quiz page, a chat or web search about a course topic) are sorted by Claude
+  at the start of each review (`review.py titles` / `save-titles`), and the decisions are kept in
+  `titles.csv` so later reviews only ask about new titles. Titles that say nothing by themselves,
+  like "ChatGPT", get the course running at that moment or what you did right before or after.
+  Leisure (messengers, social media, videos) stays "unassigned" and does not count.
+- **Uni totals:** if you are active on your laptop during a timetable course, that time is
+  already part of the timetable hours, so the Uni total counts it only once.
 - **Areas and projects** come from the folder you work in: your work folder, study folders
   (one subject per subfolder) and private folders, all set in `settings.json`.
 - Simultaneous time (two Claude sessions, or Claude Code and an IDE) only counts once.
@@ -164,6 +183,7 @@ To check everything, run `python3 review.py data week` and read the output.
 | `keywords` | `"Area/Project"` (or just `"Area"`) → words in window titles, e.g. browser tabs. |
 | `timetable_ical` | iCal link of your timetable. Keep it private; `settings.json` is never committed. |
 | `timetable_subjects` | Course code → subject, e.g. `{"DB": "Databases"}` counts the course `07_DB2VO` as Databases. Courses without a match get their own row. |
+| `context_default` | Optional `"Area"` or `"Area/Project"` for generic titles like "ChatGPT" when no course or other activity is around them, e.g. `"Uni"`. Without it, that time stays unassigned. |
 
 Everything else falls into Other, named after its top folder in your home directory.
 
@@ -174,7 +194,7 @@ Everything else falls into Other, named after its top folder in your home direct
 | `common.py` | Settings and the mapping from folders to area and project. |
 | `export.py` | Hourly: writes the spans in which you were active in Claude Code to `claude-activity.csv` and records which documents were opened in ONLYOFFICE (`documents.csv`). |
 | `activitywatch.py` | Reads app and window activity from ActivityWatch and assigns it. |
-| `review.py` | `data week\|month` prints all data for a period as Markdown (ending with the comparison with the previous period), `strava-query` builds the Strava query, `save-chats` and `projects` are used by the chat log task, `cleanup` deletes old data. |
+| `review.py` | `data week\|month` prints all data for a period as Markdown (ending with the comparison with the previous period), `strava-query` builds the Strava query, `titles` and `save-titles` sort window titles (decisions in `titles.csv`), `save-chats` and `projects` are used by the chat log task, `cleanup` deletes old data. |
 | `tasks/` | Prompts of the three scheduled tasks. |
 
 ## Privacy and cleanup
@@ -183,16 +203,15 @@ Everything stays on your Mac; the only network requests go to GitHub (via `gh`),
 timetable link and, in the Claude app's browser, Strava and claude.ai. Your data files
 (`settings.json`, the CSVs, `weeks/`, `months/`) are in `.gitignore`.
 
-- No message or chat content is stored, only times, folder names and chat titles.
+- No message or chat content is stored, only times, folder names, chat titles and the window
+  titles Claude sorted (`titles.csv`).
 - Strava activities are read during the review and never written to disk.
-- The CSVs and ActivityWatch entries keep only the current and the two previous months
-  (enough for the monthly review to compare the past month with the one before).
-- The review is posted in the task's chat and also saved as Markdown in `weeks/` and `months/`.
-  A weekly review is deleted a week after its month has a monthly review, a monthly review after
-  12 months.
-- Each review archives the earlier runs of its task, so only the newest one stays in the sidebar.
-- The notification goes to your Mac; it reaches your phone only while Remote Control is on in
-  the Claude app.
+- The CSVs (including `titles.csv`) and ActivityWatch entries keep only the current and the two
+  previous months (enough for the monthly review to compare the past month with the one before).
+- The reviews are saved as Markdown in `weeks/` and `months/`. A weekly review is deleted a week
+  after its month has a monthly review, a monthly review after 12 months.
+- The review tasks archive their own runs (and the monthly review any leftovers), so the
+  sidebar stays tidy.
 
 ## Caveats
 

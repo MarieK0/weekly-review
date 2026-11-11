@@ -2,6 +2,8 @@
 settings.json
 claude-activity.csv
 chats.csv
+titles.csv
+titles-pending.json
 documents.csv
 last-run.log
 weeks/
@@ -9,3 +11,4 @@ months/
 *.tmp
 __pycache__/
 .DS_Store
+chat-prompts/
