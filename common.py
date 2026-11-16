@@ -76,11 +76,13 @@ def classify(path):
                 rest = rest[1:]
             if not rest:
                 return "Uni", default or "(general)"
-            name = rest[0].strip()
-            for prefix, subject in REPO_SUBJECTS.items():
-                if name.startswith(prefix):
-                    return "Uni", subject
-            return "Uni", default or name
+            # A repo prefix wins wherever the repo lies, e.g. a Classroom repo "prog2-..." that was
+            # saved in the folder of another subject still counts as "Programming 2"
+            for part in rest:
+                for prefix, subject in REPO_SUBJECTS.items():
+                    if part.strip().startswith(prefix):
+                        return "Uni", subject
+            return "Uni", default or rest[0].strip()
     for folder in PRIVATE_DIRS:
         if path == folder or _inside(path, folder):
             return "Private", os.path.basename(folder)
